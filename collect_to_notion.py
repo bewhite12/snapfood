@@ -163,13 +163,17 @@ if __name__ == "__main__":
             'Instructions': {'rich_text': [{'text':{'content': "\n".join(inst_ko)}}]},
         }
 
-        # 6) Notion에 새 페이지 생성
-        notion.pages.create(
-            parent={'database_id': NOTION_DATABASE_ID},
-            properties=props
-        )
+   -        # 6) Notion에 새 페이지 생성
+-        notion.pages.create(
+-            parent={'database_id': NOTION_DATABASE_ID},
+-            properties=props
+-        )
++        # 6) Notion에 새 페이지 생성 및 결과 캡처
++        created = notion.pages.create(
++            parent={'database_id': NOTION_DATABASE_ID},
++            properties=props
++        )
++        # 업로드된 페이지의 ID를 로그로 출력 (하이픈 제거 후 URL 형태로)
++        page_id = created['id'].replace('-', '')
++        print(f"👉 업로드 완료: https://www.notion.so/{page_id}")
 
-        # API rate-limit 방지
-        time.sleep(1)
-
-    print(f"✅ Notion에 {len(selected)}개의 신규 레시피를 업데이트했습니다.")
