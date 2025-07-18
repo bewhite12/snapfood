@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # 1) 스켈레톤 코드 생성
+      # 1) 스켈레톤 코드 파일 생성
       - name: Generate skeleton files
         run: |
           mkdir -p pages components
@@ -88,7 +88,7 @@ export function Footer() {
 }
 EOF
 
-      # 2) 변경된 파일을 커밋 & 푸시
+      # 2) 생성된 파일 커밋 & 푸시
       - name: Commit skeleton
         run: |
           git config user.name "github-actions[bot]"
