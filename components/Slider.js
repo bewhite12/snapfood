@@ -20,7 +20,7 @@ export function Slider({ items }) {
             style={{ width: '100%', display: 'block' }}
           />
           <div style={{ padding: '8px', fontWeight: 'bold' }}>
-            {item.title}
+            {item.title /* 한글로 넘어옵니다 */}
           </div>
         </div>
       ))}
