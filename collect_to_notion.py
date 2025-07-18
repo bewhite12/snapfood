@@ -2,6 +2,7 @@ import os
 import random
 import time
 import json
+import re
 
 from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -25,7 +26,6 @@ DETAILED_CATEGORIES = [
     "양식-파스타", "양식-스테이크",
     "일식-초밥", "일식-라멘",
     "중식-탕수육", "중식-마라샹궈",
-    # 필요시 추가
 ]
 
 def classify_category(text, categories):
@@ -38,26 +38,23 @@ def classify_category(text, categories):
     resp = openai.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "레시피 자동 분류 도우미입니다."},
-            {"role": "user",   "content": prompt}
+            {"role":"system","content":"레시피 자동 분류 도우미입니다."},
+            {"role":"user",  "content":prompt}
         ],
         temperature=0.0,
         max_tokens=20
     )
     return resp.choices[0].message.content.strip()
 
-# ─ 유튜브 설명 + 자막 결합 ─────────────────────────────────
 def fetch_youtube_text(video_id, description):
     text = description or ""
     try:
         subs = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko','en'])
-        lines = [item['text'] for item in subs]
-        text += "\n\n" + "\n".join(lines)
+        text += "\n\n" + "\n".join(item['text'] for item in subs)
     except Exception:
         pass
     return text
 
-# ─ 텍스트 구조화 요청 ────────────────────────────────────
 def extract_recipe_structured(text):
     prompt = (
         "아래 텍스트에서 재료, 조리시간, 조리방법을 JSON으로 추출해주세요.\n"
@@ -70,25 +67,23 @@ def extract_recipe_structured(text):
     resp = openai.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "구조화된 레시피 데이터를 추출합니다."},
-            {"role": "user",   "content": prompt}
+            {"role":"system","content":"구조화된 레시피 데이터를 추출합니다."},
+            {"role":"user",  "content":prompt}
         ],
         temperature=0.0,
         max_tokens=512
     )
     return json.loads(resp.choices[0].message.content.strip())
 
-# ─ 이미 업로드된 VideoID 조회 ─────────────────────────────────
 def get_existing_video_ids():
     existing = set()
     query = notion.databases.query(database_id=NOTION_DATABASE_ID, page_size=100)
-    for page in query.get('results', []):
+    for page in query['results']:
         title_prop = page['properties']['VideoID']['title']
         if title_prop:
             existing.add(title_prop[0]['text']['content'])
     return existing
 
-# ─ 인기 영상 목록 불러오기 ─────────────────────────────────
 def fetch_videos():
     resp = yt.videos().list(
         part="snippet,statistics",
@@ -98,7 +93,6 @@ def fetch_videos():
     ).execute()
     return resp.get('items', [])
 
-# ─ 메인 실행 ────────────────────────────────────────────
 if __name__ == "__main__":
     existing_ids = get_existing_video_ids()
     videos = fetch_videos()
@@ -115,62 +109,62 @@ if __name__ == "__main__":
         snip  = v['snippet']
         stats = v.get('statistics', {})
 
-        # 1) YouTube 텍스트 가져오기
         full_text = fetch_youtube_text(vid, snip.get('description', ""))
 
-        # 2) 구조화 정보 추출
         try:
             struct = extract_recipe_structured(full_text)
         except Exception as e:
             print(f"구조화 오류: {e}")
             continue
 
-        # 3) 자동 분류
         chosen_cat = classify_category(full_text, DETAILED_CATEGORIES)
 
-        # 4) 한글 번역 함수 (영어만 번역)
         def translate(text):
             if not text or any('\uAC00' <= c <= '\uD7A3' for c in text):
                 return text
-            resp = openai.chat.completions.create(
+            r = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role":"system", "content":"한국어 번역 도우미입니다."},
-                    {"role":"user",   "content":f"다음을 한국어로 번역해주세요: {text}"}
+                    {"role":"system","content":"한국어 번역 도우미입니다."},
+                    {"role":"user",  "content":f"다음을 한국어로 번역해주세요: {text}"}
                 ],
                 temperature=0.0,
                 max_tokens=200
             )
-            return resp.choices[0].message.content.strip()
+            return r.choices[0].message.content.strip()
 
         ing_list  = struct.get('ingredients', [])
         ing_ko    = [translate(i) for i in ing_list]
-        cook_ko   = translate(struct.get('cook_time', ""))
+        cook_en   = struct.get('cook_time', "")
+        cook_ko   = translate(cook_en)
+
+        # 숫자만 추출해 Notion number 타입으로
+        m = re.search(r"(\d+)", cook_ko)
+        cook_num = int(m.group(1)) if m else None
+
         inst_list = struct.get('instructions', [])
         inst_ko   = [translate(s) for s in inst_list]
 
-        # 5) Notion 속성 구성
         props = {
-            'VideoID':      {'title':      [{'text':{'content': vid}}]},
-            'Title':        {'rich_text': [{'text':{'content': snip.get('title','')}}]},
-            'Views':        {'number':     int(stats.get('viewCount', 0))},
-            'URL':          {'url':        f"https://youtu.be/{vid}"},
-            'Channel':      {'rich_text': [{'text':{'content': snip.get('channelTitle','')}}]},
-            'Category':     {'select':     {'name': chosen_cat}},
-            'Ingredients':  {'rich_text': [{'text':{'content': "\n".join(ing_ko)}}]},
-            'CookTime':     {'rich_text': [{'text':{'content': cook_ko}}]},
-            'Instructions': {'rich_text': [{'text':{'content': "\n".join(inst_ko)}}]},
+            'VideoID':     {'title':[{'text':{'content':vid}}]},
+            'Title':       {'rich_text':[{'text':{'content':snip.get('title','')}}]},
+            'Views':       {'number':int(stats.get('viewCount',0))},
+            'URL':         {'url':f"https://youtu.be/{vid}"},
+            'Channel':     {'rich_text':[{'text':{'content':snip.get('channelTitle','')}}]},
+            'Category':    {'select':{'name':chosen_cat}},
+            'Ingredients': {'rich_text':[{'text':{'content':"\n".join(ing_ko)}}]},
+            'Instructions':{'rich_text':[{'text':{'content':"\n".join(inst_ko)}}]},
         }
+        if cook_num is not None:
+            props['CookTime'] = {'number': cook_num}
 
-        # 6) Notion에 새 페이지 생성 및 로그 출력
         created = notion.pages.create(
-            parent={'database_id': NOTION_DATABASE_ID},
+            parent={'database_id':NOTION_DATABASE_ID},
             properties=props
         )
-        page_id = created['id'].replace('-', '')
-        print(f"👉 업로드 완료: https://www.notion.so/{page_id}")
+        pid = created['id'].replace('-', '')
+        print(f"👉 업로드 완료: https://www.notion.so/{pid}")
 
-        # API rate-limit 방지
         time.sleep(1)
 
     print(f"✅ Notion에 {len(selected)}개의 신규 레시피를 업데이트했습니다.")
