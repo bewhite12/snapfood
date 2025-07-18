@@ -1,43 +1,35 @@
-name: Daily Recipe → Notion & Thumbnails
+name: Daily Recipe → Notion
 
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *'    # 매일 00:00 UTC 실행
+  workflow_dispatch:      # 수동 실행 허용
 
 jobs:
   collect-and-push:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - name: 체크아웃
+        uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Python 설정
         uses: actions/setup-python@v4
-        with: python-version: '3.x'
+        with:
+          python-version: '3.x'
 
-      - name: Install dependencies
-        run: pip install google-api-python-client notion-client requests
-        
-- name: Install dependencies
-  run: pip install google-api-python-client notion-client requests youtube-transcript-api
+      - name: 의존성 설치
+        run: |
+          pip install \
+            google-api-python-client \
+            notion-client \
+            youtube-transcript-api \
+            openai
 
-      - name: Run collection script
+      - name: 레시피 수집 및 Notion 업데이트
         env:
           YOUTUBE_API_KEY:     ${{ secrets.YOUTUBE_API_KEY }}
           NOTION_TOKEN:        ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID:  ${{ secrets.NOTION_DATABASE_ID }}
-          SPOONACULAR_KEY:     ${{ secrets.SPOONACULAR_KEY }}
-          PLACES_API_KEY:      ${{ secrets.PLACES_API_KEY }}
           OPENAI_API_KEY:      ${{ secrets.OPENAI_API_KEY }}
         run: python collect_to_notion.py
-
-      # (옵션) 썸네일 이미지를 로컬에 저장 후 커밋
-      - name: Commit thumbnails
-        run: |
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "actions@github.com"
-          git add public/thumbnails/*.png
-          git commit -m "ci: add daily thumbnails" || echo "no changes"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
