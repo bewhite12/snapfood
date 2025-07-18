@@ -14,7 +14,7 @@ export function CategoryTags({ tags }) {
           borderRadius: '16px',
           fontSize: '14px'
         }}>
-          {tag}
+          {tag /* ['한식','중식',…] */}
         </span>
       ))}
     </div>
