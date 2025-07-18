@@ -1,0 +1,29 @@
+name: Daily Recipe → Notion
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # 매일 00:00 UTC 실행
+  workflow_dispatch:     # 수동 실행도 가능
+
+jobs:
+  collect-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v3
+
+      - name: Python 설정
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: 의존성 설치
+        run: pip install google-api-python-client notion-client
+
+      - name: 레시피 수집 및 Notion 업데이트
+        run: python collect_to_notion.py
+        env:
+          YOUTUBE_API_KEY:       ${{ secrets.YOUTUBE_API_KEY }}
+          NOTION_TOKEN:          ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID:    ${{ secrets.NOTION_DATABASE_ID }}
