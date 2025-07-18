@@ -6,39 +6,31 @@ import { CategoryTags } from '../components/CategoryTags';
 import { Footer } from '../components/Footer';
 
 export default function Home() {
+  // 한글 타이틀로만 구성
   const mainSliders = [
-    { image: '/images/kimchi.jpg', title: 'Kimchi jjigae' },
-    { image: '/images/shrimp.jpg', title: 'Garlic butter shrimp' },
-    { image: '/images/croissant.jpg', title: 'Creamfield croissant' },
+    { image: '/images/kimchi.jpg', title: '김치찌개' },
+    { image: '/images/shrimp.jpg', title: '마늘버터새우' },
+    { image: '/images/croissant.jpg', title: '크림필드 크루아상' },
   ];
-  const tags = ['Korean','Chinese','Japanese','Western','Beef','Pork','Chicken'];
+  const tags = ['한식','중식','일식','양식','소고기','돼지고기','치킨'];
 
   return (
     <>
       <Header />
       <SearchBar />
-
-      {/* 메인 슬라이더 */}
       <Slider items={mainSliders} />
 
-      {/* 추천 버튼 */}
-      <section style={{
-          display: 'flex',
-          gap: '16px',
-          padding: '24px 32px',
-        }}>
-        <RecommendationButton label="What to eat for lunch?" />
-        <RecommendationButton label="What to eat for dinner?" />
+      <section style={{ display:'flex', gap:16, padding:'24px 32px' }}>
+        <RecommendationButton label="점심 메뉴 추천" />
+        <RecommendationButton label="저녁 메뉴 추천" />
       </section>
 
-      {/* Top Recipes & Top Restaurants & TV Featured */}
-      <Slider items={mainSliders /* 예시 동일 구조로 대체하세요 */} />
+      {/* 아래 슬라이더들도 동일 데이터 또는 분류별 데이터로 교체 */}
+      <Slider items={mainSliders} />
       <Slider items={mainSliders} />
       <Slider items={mainSliders} />
 
-      {/* 카테고리 태그 */}
       <CategoryTags tags={tags} />
-
       <Footer />
     </>
   );
