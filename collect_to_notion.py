@@ -106,9 +106,9 @@ if __name__ == "__main__":
         print("⚠️ 인기 영상 불러오기 실패")
         exit(1)
 
-    # 하루 최대 100개, 기존 업로드 제외
+    # 하루 최대 10개, 기존 업로드 제외 (테스트 단계)
     candidates = [v for v in videos if v['id'] not in existing_ids]
-    selected   = random.sample(candidates, min(100, len(candidates)))
+    selected   = random.sample(candidates, min(10, len(candidates)))
 
     for v in selected:
         vid   = v['id']
