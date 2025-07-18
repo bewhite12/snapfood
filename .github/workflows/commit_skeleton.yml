@@ -1,11 +1,9 @@
-.github/workflows/commit_skeleton.yml
 name: Commit Homepage Skeleton
 
-# 수동 실행 및 스케줄(선택)을 모두 지원합니다.
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'  # 매일 자정(KST)에 자동 실행
+    - cron: '0 0 * * *'  # 매일 자정(KST) 실행
 
 jobs:
   commit-skeleton:
@@ -13,11 +11,89 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # 1) 스켈레톤 코드 생성
+      - name: Generate skeleton files
+        run: |
+          mkdir -p pages components
+          cat << 'EOF' > pages/index.js
+import { Header } from '../components/Header';
+import { SliderPlaceholder } from '../components/SliderPlaceholder';
+import { CategoryMenu } from '../components/CategoryMenu';
+import { Footer } from '../components/Footer';
+
+export default function Home() {
+  return (
+    <div>
+      <Header />
+      <SliderPlaceholder title="인기 레시피" />
+      <SliderPlaceholder title="인기 맛집" />
+      <SliderPlaceholder title="최근 방송 맛집" />
+      <section style={{ padding: '16px' }}>
+        <h2>추천 메뉴</h2>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ flex: 1, height: '100px', background: '#f5f5f5' }}>오늘 점심</div>
+          <div style={{ flex: 1, height: '100px', background: '#f5f5f5' }}>오늘 저녁</div>
+        </div>
+      </section>
+      <CategoryMenu />
+      <Footer />
+    </div>
+  );
+}
+EOF
+          cat << 'EOF' > components/Header.js
+export function Header() {
+  return (
+    <header style={{ display: 'flex', padding: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
+      <img src="/logo.png" alt="Snap Food" style={{ height: '40px' }} />
+      <input placeholder="검색" style={{ flex: 1, margin: '0 16px', padding: '8px' }} />
+      <div>인기 검색어</div>
+    </header>
+  );
+}
+EOF
+          cat << 'EOF' > components/SliderPlaceholder.js
+export function SliderPlaceholder({ title }) {
+  return (
+    <section style={{ padding: '16px' }}>
+      <h2>{title || '...'}</h2>
+      <div style={{ display: 'flex', overflowX: 'auto' }}>
+        {[...Array(5)].map((_, i) => (
+          <div key={i} style={{ width: '200px', height: '120px', background: '#eee', marginRight: '8px' }} />
+        ))}
+      </div>
+    </section>
+  );
+}
+EOF
+          cat << 'EOF' > components/CategoryMenu.js
+export function CategoryMenu() {
+  return (
+    <nav style={{ padding: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      {['한식','중식','일식','양식','소고기','돼지고기','양고기','닭고기'].map((cat) => (
+        <button key={cat} style={{ padding: '8px 12px', border: '1px solid #ccc', borderRadius: '4px' }}>{cat}</button>
+      ))}
+    </nav>
+  );
+}
+EOF
+          cat << 'EOF' > components/Footer.js
+export function Footer() {
+  return (
+    <footer style={{ padding: '16px', textAlign: 'center', fontSize: '14px', color: '#666' }}>
+        <div>© 2025 Snap Food</div>
+        <div>your news, your way. News Digest.</div>
+    </footer>
+  );
+}
+EOF
+
+      # 2) 변경된 파일을 커밋 & 푸시
       - name: Commit skeleton
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
-          git add .
+          git add pages components
           git commit -m "chore: add/update homepage skeleton"
           git push
         env:
