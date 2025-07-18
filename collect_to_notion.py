@@ -2,164 +2,121 @@ import os
 import re
 import time
 import random
-from notion_client import Client as NotionClient
-from googleapiclient.discovery import build as build_youtube
+from notion_client import Client
 from youtube_transcript_api import YouTubeTranscriptApi
 import openai
 
-# ───────────────────────────────────────────────
-# 환경변수 읽기
-YOUTUBE_API_KEY      = os.getenv('YOUTUBE_API_KEY')
-NOTION_TOKEN         = os.getenv('NOTION_TOKEN')
-NOTION_DATABASE_ID   = os.getenv('NOTION_DATABASE_ID')
-OPENAI_API_KEY       = os.getenv('OPENAI_API_KEY')
+# 환경 변수에서 키 가져오기
+YOUTUBE_API_KEY      = os.environ['YOUTUBE_API_KEY']
+NOTION_TOKEN         = os.environ['NOTION_TOKEN']
+NOTION_DATABASE_ID   = os.environ['NOTION_DATABASE_ID']
+OPENAI_API_KEY       = os.environ['OPENAI_API_KEY']
 
+# 클라이언트 초기화
+notion = Client(auth=NOTION_TOKEN)
 openai.api_key = OPENAI_API_KEY
 
-# ───────────────────────────────────────────────
-# 설정값
-SEARCH_QUERY        = "레시피"          # 유튜브 탐색 키워드
-MAX_PER_DAY         = 10               # 하루 최대 아이템
-DETAILED_CATEGORIES = [
-    '한식-볶음', '양식-파스타', '디저트-케이크',
-    # ...필요한 카테고리를 더 추가
-]
-
-# ───────────────────────────────────────────────
-# 유튜브 클라이언트
-youtube = build_youtube('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
-
-# 노션 클라이언트
-notion = NotionClient(auth=NOTION_TOKEN)
-
-# ───────────────────────────────────────────────
-def fetch_videos(query, max_results=50):
-    resp = youtube.search().list(
-        q=query, part='id,snippet',
-        type='video', maxResults=max_results,
-        order='viewCount'
-    ).execute()
-    videos = []
-    for item in resp['items']:
-        videos.append({
-            'id': item['id']['videoId'],
-            'title': item['snippet']['title'],
-            'channel': item['snippet']['channelTitle'],
-            'views': 0
-        })
-    return videos
-
 def get_existing_ids():
-    existing = []
+    """노션에 이미 저장된 VideoID 목록을 반환 (빈 타이틀은 건너뜀)"""
+    existing = set()
     rsp = notion.databases.query(database_id=NOTION_DATABASE_ID, page_size=100)
     for p in rsp.get('results', []):
-        vid = p['properties']['VideoID']['title'][0]['text']['content']
-        existing.append(vid)
-    return set(existing)
+        titles = p['properties']['VideoID']['title']
+        if not titles:
+            continue
+        existing.add(titles[0]['text']['content'])
+    return existing
 
-def is_cooking_video(script_text):
-    """GPT에게 이 스크립트가 실제 조리 영상인지 물어봄"""
+def fetch_trending_videos(max_results=10):
+    """유튜브 API로 조회수 10만↑ 동영상 ID 리스트 반환 (랜덤 추출)"""
+    # (여기서는 예시용 더미 리스트)
+    all_videos = ['abc123', 'def456', 'ghi789', ...]  # 실제 호출 로직으로 교체
+    return random.sample(all_videos, max_results)
+
+def fetch_transcript(video_id):
+    """YouTubeTranscriptApi로 자막 텍스트 가져오기"""
+    try:
+        return YouTubeTranscriptApi.get_transcript(video_id, languages=['ko','en'])
+    except:
+        return []
+
+def to_text(transcript):
+    """자막 리스트를 한 덩어리 텍스트로 합치기"""
+    return " ".join([seg['text'] for seg in transcript])
+
+def translate_to_korean(text):
+    """OpenAI로 자연스러운 한국어 번역"""
+    prompt = f"다음 영어(또는 기타 언어) 레시피 텍스트를 자연스러운 한국어로 번역해 주세요:\n\n{text}"
     resp = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=[
-            {"role":"system","content":"당신은 영상 내용이 요리 조리 과정을 담고 있는지 판단하는 전문가입니다."},
-            {"role":"user","content":
-                "다음 스크립트가 진짜 ‘요리 조리 과정’을 설명하는지 '예' 또는 '아니오'로만 답해주세요:\n\n"
-                + script_text
-            }
-        ]
-    )
-    answer = resp.choices[0].message.content.strip()
-    return answer.startswith("예")
-
-def classify_category(text, choices):
-    resp = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role":"system","content":"당신은 요리 영상의 카테고리를 분류하는 전문가입니다."},
-            {"role":"user","content":
-                f"아래 요리 설명을 보고, 가능한 한 상세한 카테고리를 선택하세요:\n\n{text}\n\n목록: {choices}"
-            }
-        ]
+        messages=[{"role":"user","content":prompt}],
+        temperature=0.7
     )
     return resp.choices[0].message.content.strip()
 
-def fetch_transcript(vid):
-    segs = YouTubeTranscriptApi.get_transcript(vid)
-    raw = " ".join(s['text'] for s in segs)
-    resp = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role":"system","content":"영어(또는 기타 언어) 영상을 자연스러운 한국어로 번역하세요."},
-            {"role":"user","content": raw}
-        ]
-    )
-    return resp.choices[0].message.content
+def parse_recipe(text):
+    """한국어 텍스트에서 재료(Ingredients)와 조리시간(CookTime) 뽑기"""
+    lines = text.splitlines()
+    ingredients = [l for l in lines if re.search(r'\d+g|\d+ml|\d+개', l)]
+    cook_time_match = re.search(r'(\d+)\s?분', text)
+    cook_time = int(cook_time_match.group(1)) if cook_time_match else None
+    return ingredients, cook_time
 
-def parse_cook_time(text):
-    m = re.search(r"(\d+)", text or "")
-    return int(m.group(1)) if m else None
-
-# ───────────────────────────────────────────────
 def main():
     print("▶ 유튜브에서 영상 수집 중...")
-    videos = fetch_videos(SEARCH_QUERY, max_results=50)
-    existing = get_existing_ids()
-    candidates = [v for v in videos if v['id'] not in existing]
-    selected = random.sample(candidates, min(MAX_PER_DAY, len(candidates)))
+    existing_ids = get_existing_ids()
+    candidates = [v for v in fetch_trending_videos(100) if v not in existing_ids]
+    selected   = random.sample(candidates, min(10, len(candidates)))
 
-    for v in selected:
-        vid = v['id']
-        print(f"\n• 처리 중: https://youtu.be/{vid}")
+    for vid in selected:
+        # 1) 썸네일·제목·조회수·URL 등 기본 메타
+        url = f"https://youtu.be/{vid}"
+        title = "(제목 조회 로직 필요)"
+        views = 0  # 조회수 API로 채워야 함
+        category = "(카테고리 자동 분류 로직 필요)"
+        channel  = "(채널명 API 로직)"
 
-        # 1) 통계 가져오기
-        stats = youtube.videos().list(id=vid, part='statistics').execute()['items'][0]['statistics']
-        v['views'] = int(stats.get('viewCount', 0))
-
-        # 2) 스크립트 + 번역
-        script_ko = fetch_transcript(vid)
-
-        # 3) 요리 영상 여부 확인
-        if not is_cooking_video(script_ko):
-            print("⏭️ 스킵: 조리 과정 영상이 아님")
+        # 2) 자막 → 한국어 번역
+        raw = to_text(fetch_transcript(vid))
+        if not raw:
+            print(f"⚠ 자막 없음: {vid}, 스킵")
             continue
+        ko_text = translate_to_korean(raw)
 
-        # 4) 카테고리 분류
-        chosen_cat = classify_category(script_ko, DETAILED_CATEGORIES)
-        if chosen_cat not in DETAILED_CATEGORIES:
-            print(f"⏭️ 스킵: 허용된 카테고리 아님 ({chosen_cat})")
-            continue
+        # 3) 재료·조리시간 추출
+        ingredients, cook_time = parse_recipe(ko_text)
 
-        # 5) 조리시간 요약
-        tm_resp = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role":"system","content":"이 글에서 ‘조리 시간’을 분 단위 숫자로 요약해서 출력하세요."},
-                {"role":"user","content": script_ko}
-            ]
-        )
-        cook_time = parse_cook_time(tm_resp.choices[0].message.content)
-
-        # 6) 노션 속성 매핑
+        # 4) 노션에 새 페이지 생성
         props = {
-            "VideoID":    {"title":[{"text":{"content":vid}}]},
-            "Views":      {"number":v['views']},
-            "URL":        {"url":f"https://youtu.be/{vid}"},
-            "Title":      {"rich_text":[{"text":{"content":v['title']}}]},
-            "Category":   {"select":{"name":chosen_cat}},
-            "Channel":    {"rich_text":[{"text":{"content":v['channel']}}]},
-            "CookTime":   {"number": cook_time or 0},
-            "Ingredients":{"rich_text":[{"text":{"content":"재료 정보 생략"}}]}
+            "VideoID": {
+                "title": [{"text": {"content": vid}}]
+            },
+            "URL": {
+                "url": url
+            },
+            "Title": {
+                "rich_text": [{"text": {"content": title}}]
+            },
+            "Views": {
+                "number": views
+            },
+            "Category": {
+                "multi_select": [{"name": category}]
+            },
+            "Channel": {
+                "rich_text": [{"text": {"content": channel}}]
+            },
+            "Ingredients": {
+                "rich_text": [{"text": {"content": "\n".join(ingredients)}}]
+            },
+            "CookTime": {
+                "number": cook_time or 0
+            }
         }
+        notion.pages.create(parent={"database_id": NOTION_DATABASE_ID}, properties=props)
+        time.sleep(1)  # rate limit 방지
 
-        # 7) 노션에 새 페이지 생성
-        notion.pages.create(
-            parent={'database_id': NOTION_DATABASE_ID},
-            properties=props
-        )
-        time.sleep(1)  # rate-limit 방지
-
-    print(f"\n✅ Notion에 {len(selected)}개 업데이트 완료!")
+    print(f"✅ Notion에 {len(selected)}개의 신규 레시피를 업데이트했습니다.")
 
 if __name__ == "__main__":
     main()
