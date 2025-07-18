@@ -11,7 +11,7 @@ export function RecommendationButton({ label }) {
       fontSize: '16px',
       cursor: 'pointer'
     }}>
-      {label}
+      {label /* “점심 메뉴 추천” / “저녁 메뉴 추천” */}
     </button>
   );
 }
