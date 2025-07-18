@@ -98,3 +98,32 @@ EOF
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# (생략) 앞부분은 그대로 두고…
+
+jobs:
+  commit-skeleton:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      # 1) 스켈레톤 파일 생성 단계 (이미 있으니 그대로 유지)
+      - name: Generate skeleton files
+        run: |
+          mkdir -p pages components
+          # …(이하 생략)…
+
+      # 2) 조건부 커밋 & 푸시
+      - name: Commit skeleton
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add pages components
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: add/update homepage skeleton"
+            git push
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
