@@ -135,8 +135,9 @@ if __name__ == "__main__":
 
         ing_list  = struct.get('ingredients', [])
         ing_ko    = [translate(i) for i in ing_list]
-        cook_en   = struct.get('cook_time', "")
-        cook_ko   = translate(cook_en)
+
+        cook_en   = struct.get('cook_time') or ""
+        cook_ko   = translate(cook_en) or ""
 
         # 숫자만 추출해 Notion number 타입으로
         m = re.search(r"(\d+)", cook_ko)
@@ -146,20 +147,20 @@ if __name__ == "__main__":
         inst_ko   = [translate(s) for s in inst_list]
 
         props = {
-            'VideoID':     {'title':[{'text':{'content':vid}}]},
-            'Title':       {'rich_text':[{'text':{'content':snip.get('title','')}}]},
-            'Views':       {'number':int(stats.get('viewCount',0))},
-            'URL':         {'url':f"https://youtu.be/{vid}"},
-            'Channel':     {'rich_text':[{'text':{'content':snip.get('channelTitle','')}}]},
-            'Category':    {'select':{'name':chosen_cat}},
-            'Ingredients': {'rich_text':[{'text':{'content':"\n".join(ing_ko)}}]},
-            'Instructions':{'rich_text':[{'text':{'content':"\n".join(inst_ko)}}]},
+            'VideoID':      {'title':      [{'text':{'content': vid}}]},
+            'Title':        {'rich_text': [{'text':{'content': snip.get('title','')}}]},
+            'Views':        {'number':     int(stats.get('viewCount', 0))},
+            'URL':          {'url':        f"https://youtu.be/{vid}"},
+            'Channel':      {'rich_text': [{'text':{'content': snip.get('channelTitle','')}}]},
+            'Category':     {'select':     {'name': chosen_cat}},
+            'Ingredients':  {'rich_text': [{'text':{'content': "\n".join(ing_ko)}}]},
+            'Instructions': {'rich_text': [{'text':{'content': "\n".join(inst_ko)}}]},
         }
         if cook_num is not None:
             props['CookTime'] = {'number': cook_num}
 
         created = notion.pages.create(
-            parent={'database_id':NOTION_DATABASE_ID},
+            parent={'database_id': NOTION_DATABASE_ID},
             properties=props
         )
         pid = created['id'].replace('-', '')
