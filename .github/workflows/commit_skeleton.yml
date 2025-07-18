@@ -1,0 +1,24 @@
+.github/workflows/commit_skeleton.yml
+name: Commit Homepage Skeleton
+
+# 수동 실행 및 스케줄(선택)을 모두 지원합니다.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 매일 자정(KST)에 자동 실행
+
+jobs:
+  commit-skeleton:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Commit skeleton
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "chore: add/update homepage skeleton"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
