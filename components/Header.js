@@ -8,7 +8,7 @@ export function Header() {
       background: '#fff',
       boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
     }}>
-      <h1 style={{ margin: 0, color: '#FF6A00' }}>SnapFood</h1>
+      <h1 style={{ margin: 0, color: '#FF6A00' }}>Snap Food</h1>
       <nav>
         <button style={{
           marginRight: '16px',
@@ -17,12 +17,12 @@ export function Header() {
           padding: '8px 16px',
           border: 'none',
           borderRadius: '4px'
-        }}>Popular Searches</button>
+        }}>인기 검색어</button>
         <button style={{
           background: 'transparent',
           border: 'none',
           color: '#333'
-        }}>Sign Up</button>
+        }}>회원가입</button>
       </nav>
     </header>
   );
