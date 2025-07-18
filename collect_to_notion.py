@@ -40,8 +40,8 @@ def classify_category(text, categories):
     resp = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role":"system","content":"You are an assistant that classifies recipes."},
-            {"role":"user","content":prompt}
+            {"role": "system", "content": "You are a assistant that classifies recipes."},
+            {"role": "user",   "content": prompt}
         ],
         temperature=0.0,
         max_tokens=30
@@ -52,7 +52,7 @@ def classify_category(text, categories):
 def fetch_youtube_text(video_id, description):
     text = description or ""
     try:
-        subs = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko','en'])
+        subs = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
         text += "\n\n" + "\n".join(item['text'] for item in subs)
     except Exception:
         pass
@@ -71,8 +71,8 @@ def extract_recipe_structured(text):
     resp = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role":"system","content":"You are a helpful assistant that extracts structured recipe data."},
-            {"role":"user","content":prompt}
+            {"role": "system", "content": "You are a assistant that extracts structured recipe data."},
+            {"role": "user",   "content": prompt}
         ],
         temperature=0.0,
         max_tokens=512
@@ -129,36 +129,36 @@ if __name__ == "__main__":
         # 3) 자동 분류
         chosen_cat = classify_category(full_text, DETAILED_CATEGORIES)
 
-        # 4) 한글 번역 (이미 한글인 경우도 그대로)
+        # 4) 한글 번역 (한글 텍스트는 그대로, 그 외는 GPT 번역)
         ing_list = struct.get('ingredients', [])
-        ing_ko   = []
-        for i in ing_list:
-            if any('\uAC00' <= c <= '\uD7A3' for c in i):  # 한글 포함 확인
-                ing_ko.append(i)
+        ing_ko = []
+        for item in ing_list:
+            if any('\uAC00' <= c <= '\uD7A3' for c in item):
+                ing_ko.append(item)
             else:
-                resp = openai.ChatCompletion.create(
+                tr = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role":"system","content":"You are a professional translator to Korean."},
-                        {"role":"user","content":f"다음 텍스트를 한국어로 번역해 주세요: {i}"}
+                        {"role":"system", "content":"You are a translator to Korean."},
+                        {"role":"user",   "content":f"텍스트를 한국어로 번역해주세요: {item}"}
                     ],
                     temperature=0.0,
                     max_tokens=100
                 )
-                ing_ko.append(resp.choices[0].message.content.strip())
+                ing_ko.append(tr.choices[0].message.content.strip())
 
         cook_time_en = struct.get('cook_time', '')
         if cook_time_en and not any('\uAC00' <= c <= '\uD7A3' for c in cook_time_en):
-            rt = openai.ChatCompletion.create(
+            tr = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role":"system","content":"You are a professional translator to Korean."},
-                    {"role":"user","content":f"다음 텍스트를 한국어로 번역해 주세요: {cook_time_en}"}
+                    {"role":"system", "content":"You are a translator to Korean."},
+                    {"role":"user",   "content":f"텍스트를 한국어로 번역해주세요: {cook_time_en}"}
                 ],
                 temperature=0.0,
                 max_tokens=50
             )
-            cook_ko = rt.choices[0].message.content.strip()
+            cook_ko = tr.choices[0].message.content.strip()
         else:
             cook_ko = cook_time_en
 
@@ -168,37 +168,35 @@ if __name__ == "__main__":
             if any('\uAC00' <= c <= '\uD7A3' for c in step):
                 inst_ko.append(step)
             else:
-                rt = openai.ChatCompletion.create(
+                tr = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role":"system","content":"You are a professional translator to Korean."},
-                        {"role":"user","content":f"다음 텍스트를 한국어로 번역해 주세요: {step}"}
+                        {"role":"system", "content":"You are a translator to Korean."},
+                        {"role":"user",   "content":f"텍스트를 한국어로 번역해주세요: {step}"}
                     ],
                     temperature=0.0,
                     max_tokens=200
                 )
-                inst_ko.append(rt.choices[0].message.content.strip())
+                inst_ko.append(tr.choices[0].message.content.strip())
 
         # 5) Notion 속성 구성
         props = {
-            'VideoID':      {'title':      [{'text':{'content': vid}}]},
-            'Title':        {'rich_text': [{'text':{'content': snip.get('title','')}}]},
-            'Views':        {'number':     int(stats.get('viewCount', 0))},
-            'URL':          {'url':        f"https://youtu.be/{vid}"},
-            'Channel':      {'rich_text': [{'text':{'content': snip.get('channelTitle','')}}]},
-            'Category':     {'select':     {'name': chosen_cat}},
-            'Ingredients':  {'rich_text': [{'text':{'content': "\n".join(ing_ko)}}]},
-            'CookTime':     {'rich_text': [{'text':{'content': cook_ko}}]},
-            'Instructions': {'rich_text': [{'text':{'content': "\n".join(inst_ko)}}]},
+            'VideoID':     {'title':      [{'text':{'content': vid}}]},
+            'Title':       {'rich_text': [{'text':{'content': snip.get('title','')}}]},
+            'Views':       {'number':     int(stats.get('viewCount', 0))},
+            'URL':         {'url':        f"https://youtu.be/{vid}"},
+            'Channel':     {'rich_text': [{'text':{'content': snip.get('channelTitle','')}}]},
+            'Category':    {'select':     {'name': chosen_cat}},
+            'Ingredients': {'rich_text': [{'text':{'content': "\n".join(ing_ko)}}]},
+            'CookTime':    {'rich_text': [{'text':{'content': cook_ko}}]},
+            'Instructions':{'rich_text': [{'text':{'content': "\n".join(inst_ko)}}]},
         }
 
-        # 6) Notion에 새 페이지 생성
         notion.pages.create(
             parent={'database_id': NOTION_DATABASE_ID},
             properties=props
         )
 
-        # 호출 간 짧은 대기
         time.sleep(1)
 
     print(f"✅ Notion에 {len(selected)}개의 신규 레시피를 업데이트했습니다.")
