@@ -25,18 +25,17 @@ DETAILED_CATEGORIES = [
     "양식-파스타", "양식-스테이크",
     "일식-초밥", "일식-라멘",
     "중식-탕수육", "중식-마라샹궈",
-    # 필요시 여기에 추가
+    # 필요시 추가
 ]
 
 def classify_category(text, categories):
     prompt = (
-        "다음 레시피 텍스트 중에서, 아래 카테고리 목록에서 가장 어울리는 하나를 "
-        "한국어로 골라서 알려주세요.\n\n"
+        "아래 레시피 텍스트에서, 제공된 카테고리 목록 중 가장 적절한 하나를 "
+        "한국어로 선택해 알려주세요.\n\n"
         f"카테고리 목록: {categories}\n\n"
-        "레시피 텍스트:\n"
-        f"{text}"
+        "레시피 텍스트:\n" + text
     )
-    resp = openai.ChatCompletion.create(
+    resp = openai.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "레시피 자동 분류 도우미입니다."},
@@ -61,14 +60,14 @@ def fetch_youtube_text(video_id, description):
 # ─ 텍스트 구조화 요청 ────────────────────────────────────
 def extract_recipe_structured(text):
     prompt = (
-        "아래 텍스트에서 재료, 조리시간, 조리방법을 JSON으로 추출해 주세요.\n"
-        "1) ingredients: 재료를 ['재료1', '재료2', ...] 형태로\n"
-        "2) cook_time: 'XX분' 형태로\n"
-        "3) instructions: 단계별 ['1. ...', '2. ...'] 형태로\n\n"
-        "반드시 JSON만 출력하고, 키는 ingredients, cook_time, instructions로 해주세요.\n\n"
-        f"{text}"
+        "아래 텍스트에서 재료, 조리시간, 조리방법을 JSON으로 추출해주세요.\n"
+        "1) ingredients: ['재료1', '재료2', ...]\n"
+        "2) cook_time: 'XX분'\n"
+        "3) instructions: ['1. ...', '2. ...']\n\n"
+        "반드시 JSON만 출력하고, 키는 ingredients, cook_time, instructions이어야 합니다.\n\n"
+        + text
     )
-    resp = openai.ChatCompletion.create(
+    resp = openai.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "구조화된 레시피 데이터를 추출합니다."},
@@ -109,14 +108,14 @@ if __name__ == "__main__":
 
     # 하루 최대 100개, 기존 업로드 제외
     candidates = [v for v in videos if v['id'] not in existing_ids]
-    selected = random.sample(candidates, min(100, len(candidates)))
+    selected   = random.sample(candidates, min(100, len(candidates)))
 
     for v in selected:
         vid   = v['id']
         snip  = v['snippet']
         stats = v.get('statistics', {})
 
-        # 1) YouTube 설명 + 자막 합치기
+        # 1) YouTube 텍스트 가져오기
         full_text = fetch_youtube_text(vid, snip.get('description', ""))
 
         # 2) 구조화 정보 추출
@@ -129,11 +128,11 @@ if __name__ == "__main__":
         # 3) 자동 분류
         chosen_cat = classify_category(full_text, DETAILED_CATEGORIES)
 
-        # 4) 한글 번역 (영어 텍스트만 GPT로 번역)
+        # 4) 한글 번역 함수 (영어만 번역)
         def translate(text):
             if not text or any('\uAC00' <= c <= '\uD7A3' for c in text):
                 return text
-            resp = openai.ChatCompletion.create(
+            resp = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role":"system", "content":"한국어 번역 도우미입니다."},
@@ -144,18 +143,18 @@ if __name__ == "__main__":
             )
             return resp.choices[0].message.content.strip()
 
-        ing_list   = struct.get('ingredients', [])
-        ing_ko     = [translate(i) for i in ing_list]
-        cook_ko    = translate(struct.get('cook_time', ""))
-        inst_list  = struct.get('instructions', [])
-        inst_ko    = [translate(s) for s in inst_list]
+        ing_list  = struct.get('ingredients', [])
+        ing_ko    = [translate(i) for i in ing_list]
+        cook_ko   = translate(struct.get('cook_time', ""))
+        inst_list = struct.get('instructions', [])
+        inst_ko   = [translate(s) for s in inst_list]
 
         # 5) Notion 속성 구성
         props = {
             'VideoID':      {'title':      [{'text':{'content': vid}}]},
             'Title':        {'rich_text': [{'text':{'content': snip.get('title','')}}]},
             'Views':        {'number':     int(stats.get('viewCount', 0))},
-            'URL':          {'url':        "https://youtu.be/" + vid},
+            'URL':          {'url':        f"https://youtu.be/{vid}"},
             'Channel':      {'rich_text': [{'text':{'content': snip.get('channelTitle','')}}]},
             'Category':     {'select':     {'name': chosen_cat}},
             'Ingredients':  {'rich_text': [{'text':{'content': "\n".join(ing_ko)}}]},
@@ -175,4 +174,3 @@ if __name__ == "__main__":
         time.sleep(1)
 
     print(f"✅ Notion에 {len(selected)}개의 신규 레시피를 업데이트했습니다.")
-    
