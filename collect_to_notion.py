@@ -2,6 +2,7 @@ import os
 import random
 import time
 import json
+
 from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi
 from notion_client import Client
@@ -24,27 +25,25 @@ DETAILED_CATEGORIES = [
     "양식-파스타", "양식-스테이크",
     "일식-초밥", "일식-라멘",
     "중식-탕수육", "중식-마라샹궈",
-    # 필요시 추가
+    # 필요시 여기에 추가
 ]
 
 def classify_category(text, categories):
-    prompt = f"""
-다음은 레시피 텍스트입니다. 가능한 카테고리 목록 중
-가장 어울리는 하나를 한국어로 골라서 출력해 주세요.
-
-카테고리 목록: {categories}
-
-레시피 텍스트:
-\"\"\"{text}\"\"\"
-"""
+    prompt = (
+        "다음 레시피 텍스트 중에서, 아래 카테고리 목록에서 가장 어울리는 하나를 "
+        "한국어로 골라서 알려주세요.\n\n"
+        f"카테고리 목록: {categories}\n\n"
+        "레시피 텍스트:\n"
+        f"{text}"
+    )
     resp = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "You are a assistant that classifies recipes."},
+            {"role": "system", "content": "레시피 자동 분류 도우미입니다."},
             {"role": "user",   "content": prompt}
         ],
         temperature=0.0,
-        max_tokens=30
+        max_tokens=20
     )
     return resp.choices[0].message.content.strip()
 
@@ -52,26 +51,27 @@ def classify_category(text, categories):
 def fetch_youtube_text(video_id, description):
     text = description or ""
     try:
-        subs = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
-        text += "\n\n" + "\n".join(item['text'] for item in subs)
+        subs = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko','en'])
+        lines = [item['text'] for item in subs]
+        text += "\n\n" + "\n".join(lines)
     except Exception:
         pass
     return text
 
-# ─ ChatGPT에 구조화 요청 ──────────────────────────────────
+# ─ 텍스트 구조화 요청 ────────────────────────────────────
 def extract_recipe_structured(text):
-    prompt = f"""
-아래 텍스트에서 재료, 조리시간, 조리방법을 JSON으로 추출해 주세요.
-1) ingredients: ["재료1", "재료2", ...]
-2) cook_time: "XX분"
-3) instructions: ["1. ...", "2. ...", ...]
-
-출력은 JSON만, keys는 ingredients, cook_time, instructions 로 해주세요.
-
+    prompt = (
+        "아래 텍스트에서 재료, 조리시간, 조리방법을 JSON으로 추출해 주세요.\n"
+        "1) ingredients: 재료를 ['재료1', '재료2', ...] 형태로\n"
+        "2) cook_time: 'XX분' 형태로\n"
+        "3) instructions: 단계별 ['1. ...', '2. ...'] 형태로\n\n"
+        "반드시 JSON만 출력하고, 키는 ingredients, cook_time, instructions로 해주세요.\n\n"
+        f"{text}"
+    )
     resp = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "You are a assistant that extracts structured recipe data."},
+            {"role": "system", "content": "구조화된 레시피 데이터를 추출합니다."},
             {"role": "user",   "content": prompt}
         ],
         temperature=0.0,
@@ -82,8 +82,8 @@ def extract_recipe_structured(text):
 # ─ 이미 업로드된 VideoID 조회 ─────────────────────────────────
 def get_existing_video_ids():
     existing = set()
-    resp = notion.databases.query(database_id=NOTION_DATABASE_ID, page_size=100)
-    for page in resp.get('results', []):
+    query = notion.databases.query(database_id=NOTION_DATABASE_ID, page_size=100)
+    for page in query.get('results', []):
         title_prop = page['properties']['VideoID']['title']
         if title_prop:
             existing.add(title_prop[0]['text']['content'])
@@ -91,13 +91,13 @@ def get_existing_video_ids():
 
 # ─ 인기 영상 목록 불러오기 ─────────────────────────────────
 def fetch_videos():
-    res = yt.videos().list(
+    resp = yt.videos().list(
         part="snippet,statistics",
         chart="mostPopular",
         regionCode="KR",
         maxResults=50
     ).execute()
-    return res.get('items', [])
+    return resp.get('items', [])
 
 # ─ 메인 실행 ────────────────────────────────────────────
 if __name__ == "__main__":
@@ -116,87 +116,60 @@ if __name__ == "__main__":
         snip  = v['snippet']
         stats = v.get('statistics', {})
 
-        # 1) YouTube 설명 + 자막
+        # 1) YouTube 설명 + 자막 합치기
         full_text = fetch_youtube_text(vid, snip.get('description', ""))
 
         # 2) 구조화 정보 추출
         try:
             struct = extract_recipe_structured(full_text)
         except Exception as e:
-            print(f"GPT 구조화 오류: {e}")
+            print(f"구조화 오류: {e}")
             continue
 
         # 3) 자동 분류
         chosen_cat = classify_category(full_text, DETAILED_CATEGORIES)
 
-        # 4) 한글 번역 (한글 텍스트는 그대로, 그 외는 GPT 번역)
-        ing_list = struct.get('ingredients', [])
-        ing_ko = []
-        for item in ing_list:
-            if any('\uAC00' <= c <= '\uD7A3' for c in item):
-                ing_ko.append(item)
-            else:
-                tr = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role":"system", "content":"You are a translator to Korean."},
-                        {"role":"user",   "content":f"텍스트를 한국어로 번역해주세요: {item}"}
-                    ],
-                    temperature=0.0,
-                    max_tokens=100
-                )
-                ing_ko.append(tr.choices[0].message.content.strip())
-
-        cook_time_en = struct.get('cook_time', '')
-        if cook_time_en and not any('\uAC00' <= c <= '\uD7A3' for c in cook_time_en):
-            tr = openai.ChatCompletion.create(
+        # 4) 한글 번역 (영어 텍스트만 GPT로 번역)
+        def translate(text):
+            if not text or any('\uAC00' <= c <= '\uD7A3' for c in text):
+                return text
+            resp = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role":"system", "content":"You are a translator to Korean."},
-                    {"role":"user",   "content":f"텍스트를 한국어로 번역해주세요: {cook_time_en}"}
+                    {"role":"system", "content":"한국어 번역 도우미입니다."},
+                    {"role":"user",   "content":f"다음을 한국어로 번역해주세요: {text}"}
                 ],
                 temperature=0.0,
-                max_tokens=50
+                max_tokens=200
             )
-            cook_ko = tr.choices[0].message.content.strip()
-        else:
-            cook_ko = cook_time_en
+            return resp.choices[0].message.content.strip()
 
-        inst_list = struct.get('instructions', [])
-        inst_ko = []
-        for step in inst_list:
-            if any('\uAC00' <= c <= '\uD7A3' for c in step):
-                inst_ko.append(step)
-            else:
-                tr = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role":"system", "content":"You are a translator to Korean."},
-                        {"role":"user",   "content":f"텍스트를 한국어로 번역해주세요: {step}"}
-                    ],
-                    temperature=0.0,
-                    max_tokens=200
-                )
-                inst_ko.append(tr.choices[0].message.content.strip())
+        ing_list   = struct.get('ingredients', [])
+        ing_ko     = [translate(i) for i in ing_list]
+        cook_ko    = translate(struct.get('cook_time', ""))
+        inst_list  = struct.get('instructions', [])
+        inst_ko    = [translate(s) for s in inst_list]
 
         # 5) Notion 속성 구성
         props = {
-            'VideoID':     {'title':      [{'text':{'content': vid}}]},
-            'Title':       {'rich_text': [{'text':{'content': snip.get('title','')}}]},
-            'Views':       {'number':     int(stats.get('viewCount', 0))},
-            'URL':         {'url':        f"https://youtu.be/{vid}"},
-            'Channel':     {'rich_text': [{'text':{'content': snip.get('channelTitle','')}}]},
-            'Category':    {'select':     {'name': chosen_cat}},
-            'Ingredients': {'rich_text': [{'text':{'content': "\n".join(ing_ko)}}]},
-            'CookTime':    {'rich_text': [{'text':{'content': cook_ko}}]},
-            'Instructions':{'rich_text': [{'text':{'content': "\n".join(inst_ko)}}]},
+            'VideoID':      {'title':      [{'text':{'content': vid}}]},
+            'Title':        {'rich_text': [{'text':{'content': snip.get('title','')}}]},
+            'Views':        {'number':     int(stats.get('viewCount', 0))},
+            'URL':          {'url':        f"https://youtu.be/{vid}"},
+            'Channel':      {'rich_text': [{'text':{'content': snip.get('channelTitle','')}}]},
+            'Category':     {'select':     {'name': chosen_cat}},
+            'Ingredients':  {'rich_text': [{'text':{'content': "\n".join(ing_ko)}}]},
+            'CookTime':     {'rich_text': [{'text':{'content': cook_ko}}]},
+            'Instructions': {'rich_text': [{'text':{'content': "\n".join(inst_ko)}}]},
         }
 
+        # 6) Notion에 새 페이지 생성
         notion.pages.create(
             parent={'database_id': NOTION_DATABASE_ID},
             properties=props
         )
 
+        # API rate-limit 방지
         time.sleep(1)
 
     print(f"✅ Notion에 {len(selected)}개의 신규 레시피를 업데이트했습니다.")
