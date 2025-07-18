@@ -17,6 +17,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install google-api-python-client notion-client requests
+        
+- name: Install dependencies
+  run: pip install google-api-python-client notion-client requests youtube-transcript-api
 
       - name: Run collection script
         env:
