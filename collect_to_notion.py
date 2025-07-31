@@ -7,35 +7,38 @@ from googleapiclient.discovery import build as build_youtube
 from youtube_transcript_api import YouTubeTranscriptApi
 import openai
 
-YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
-NOTION_TOKEN    = os.getenv('NOTION_TOKEN')
-NOTION_DB_ID    = os.getenv('NOTION_DATABASE_ID')
-OPENAI_API_KEY  = os.getenv('OPENAI_API_KEY')
+# ───────────────────────────────────────────────────────
+# 환경 변수 로드
+YOUTUBE_API_KEY    = os.getenv('YOUTUBE_API_KEY')
+NOTION_TOKEN       = os.getenv('NOTION_TOKEN')
+NOTION_DATABASE_ID = os.getenv('NOTION_DATABASE_ID')
+OPENAI_API_KEY     = os.getenv('OPENAI_API_KEY')
 
 openai.api_key = OPENAI_API_KEY
 
-MAX_PER_DAY      = 10
-SEARCH_QUERIES   = ["요리 레시피", "cooking recipe"]
-INITIAL_KEYWORDS = ["레시피","요리","만들기","recipe","cook","cooking"]
+# ───────────────────────────────────────────────────────
+# 설정: Test 단계에서는 5개만 업로드
+MAX_UPLOADS      = 5
+SEARCH_QUERY     = "cooking recipe"
 
+# ───────────────────────────────────────────────────────
+# 클라이언트 초기화
 youtube = build_youtube('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 notion  = NotionClient(auth=NOTION_TOKEN)
 
+# ───────────────────────────────────────────────────────
 def get_existing_ids():
+    """Notion DB 에 이미 들어간 VideoID 집합을 반환."""
     existing = set()
-    resp = notion.databases.query(database_id=NOTION_DB_ID, page_size=100)
+    resp = notion.databases.query(database_id=NOTION_DATABASE_ID, page_size=100)
     for page in resp.get('results', []):
-        titles = page['properties']['VideoID']['title']
-        if titles:
-            existing.add(titles[0]['text']['content'])
+        title = page['properties']['VideoID']['title']
+        if title:
+            existing.add(title[0]['text']['content'])
     return existing
 
-def fetch_video_statistics(video_id):
-    resp = youtube.videos().list(part='statistics', id=video_id).execute()
-    stats = resp['items'][0]['statistics']
-    return int(stats.get('viewCount', 0))
-
-def fetch_transcript_text(video_id):
+def fetch_transcript(video_id):
+    """YouTube 자막(API) → 텍스트. 실패 시 빈 문자열."""
     try:
         segs = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko','en'])
         return " ".join(s['text'] for s in segs)
@@ -43,168 +46,89 @@ def fetch_transcript_text(video_id):
         return ""
 
 def translate_to_korean(text):
+    """GPT로 한글 번역. 빈 입력 or 실패 시 '정보가 없습니다.' 반환."""
     if not text.strip():
         return "정보가 없습니다."
     prompt = (
-        "다음 텍스트를 한국어로 번역하세요. 추가 정보를 절대 생성하지 마세요. "
-        "불명확하면 '정보가 없습니다.'로만 응답하세요.\n\n" + text
+        "다음 텍스트를 한국어로 번역하세요. "
+        "추가 정보를 생성하지 말고, 원본에 없는 내용은 절대 넣지 마세요. "
+        "내용이 부족하면 '정보가 없습니다.'라고만 응답하세요.\n\n"
+        + text
     )
     resp = openai.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[{"role":"user","content":prompt}],
-        temperature=0.0, max_tokens=2000
+        temperature=0.0,
+        max_tokens=2000
     )
     return resp.choices[0].message.content.strip()
-
-def classify_category(script):
-    prompt = (
-        "다음 요리의 카테고리를 다음 형식으로만 작성하세요:\n"
-        "한식, 중식, 양식, 일식, 디저트, 그 외 중 하나 - 정확한 음식명\n"
-        "정보가 불분명하면 '그 외-기타'라고만 응답.\n\n" + script
-    )
-    resp = openai.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role":"user","content":prompt}],
-        temperature=0.0, max_tokens=20
-    )
-    cat = resp.choices[0].message.content.strip()
-    return cat if '-' in cat else "그 외-기타"
-
-def optimize_for_seo(instructions):
-    if instructions == "정보가 없습니다.":
-        return instructions
-    prompt = (
-        "다음 요리법을 SEO에 맞게 단계별로 정리하세요. "
-        "절대 추가 정보 생성 금지. 정보 부족시 '정보가 없습니다.'로만 응답.\n\n"
-        + instructions
-    )
-    resp = openai.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role":"user","content":prompt}],
-        temperature=0.0, max_tokens=1500
-    )
-    return resp.choices[0].message.content.strip()
-
-def generate_hashtags(content):
-    if content == "정보가 없습니다.":
-        return "#정보없음"
-    prompt = (
-        "다음 콘텐츠의 요리 관련 해시태그 10개만 생성하세요. "
-        "요리와 관련 없으면 '#정보없음'으로만 응답.\n\n"
-        + content
-    )
-    resp = openai.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role":"user","content":prompt}],
-        temperature=0.0, max_tokens=100
-    )
-    tags = resp.choices[0].message.content.strip()
-    return tags if tags.startswith("#") else "#정보없음"
 
 def extract_ingredients(script):
-    matches = re.findall(
-        r'(\d+\s?(?:g|ml|개|스푼|컵|큰술|작은술|tbsp|tsp|oz)\s?\S+)',
-        script, re.I
-    )
+    """스크립트에서 '숫자+단위+재료' 패턴을 찾아 1,2,3... 형식의 리스트로 반환."""
+    pattern = r'(\d+\s?(?:g|ml|개|스푼|컵|큰술|작은술|tbsp|tsp|oz)\s?\S+)'
+    matches = re.findall(pattern, script, re.I)
     if not matches:
         return "정보가 없습니다."
-    return "\n".join(f"{i+1}. {m}" for i, m in enumerate(matches))
+    return "\n".join(f"{i+1}. {m.strip()}" for i, m in enumerate(matches))
 
-def is_cooking_channel(channel_id):
-    resp = youtube.search().list(
-        channelId=channel_id, part='snippet', order='date',
-        maxResults=5, type='video'
-    ).execute()
-    cnt = 0
-    for v in resp.get('items', []):
-        text = (v['snippet']['title'] + v['snippet']['description']).lower()
-        if any(kw in text for kw in INITIAL_KEYWORDS):
-            cnt += 1
-    return cnt >= 3
-
+# ───────────────────────────────────────────────────────
 def main():
     existing_ids = get_existing_ids()
     uploaded = 0
 
-    for query in SEARCH_QUERIES:
-        page_token = None
-        while uploaded < MAX_PER_DAY:
-            resp = youtube.search().list(
-                q=query, part='id,snippet', type='video',
-                maxResults=50, order='viewCount', pageToken=page_token
-            ).execute()
-            videos = resp.get('items', [])
-            page_token = resp.get('nextPageToken')
-            if not videos:
-                break
+    # 1) 한 번만 검색해서 최대 5개 업로드
+    resp = youtube.search().list(
+        q=SEARCH_QUERY,
+        part='id,snippet',
+        type='video',
+        maxResults=20,        # 20개 중에서
+        order='viewCount'
+    ).execute()
 
-            for vid in videos:
-                if uploaded >= MAX_PER_DAY:
-                    break
+    for item in resp.get('items', []):
+        if uploaded >= MAX_UPLOADS:
+            break
 
-                vid_id     = vid['id']['videoId']
-                if vid_id in existing_ids:
-                    continue
+        vid_id = item['id']['videoId']
+        if vid_id in existing_ids:
+            continue
 
-                snip       = vid['snippet']
-                channel_id = snip['channelId']
-                channel    = snip['channelTitle']
+        title       = item['snippet']['title']
+        description = item['snippet'].get('description', "")
 
-                if not is_cooking_channel(channel_id):
-                    print(f"⏭️ 스킵: 채널에 요리영상 부족 ({channel})")
-                    continue
+        # 2) 스크립트 입수: 자막 우선, 없으면 설명
+        transcript = fetch_transcript(vid_id)
+        source     = transcript or description
+        if len(source.strip()) < 20:
+            print(f"⏭️ 스킵: 정보량 부족 ({vid_id})")
+            continue
 
-                views      = fetch_video_statistics(vid_id)
-                full_text  = "\n\n".join(filter(None, [
-                    snip.get('description', ''),
-                    fetch_transcript_text(vid_id)
-                ]))
+        # 3) 재료 추출
+        ingredients = extract_ingredients(source)
+        if ingredients == "정보가 없습니다.":
+            print(f"⏭️ 스킵: 재료 정보 부족 ({vid_id})")
+            continue
 
-                if len(full_text.strip()) < 50:
-                    print(f"⏭️ 스킵: 정보 부족 ({vid_id})")
-                    continue
+        # 4) 만드는 방법: 원본 스크립트 그대로 한글 번역
+        instructions_kr = translate_to_korean(source)
+        if instructions_kr == "정보가 없습니다.":
+            print(f"⏭️ 스킵: 조리법 번역 실패 ({vid_id})")
+            continue
 
-                full_text_kr = translate_to_korean(full_text)
-                if full_text_kr == "정보가 없습니다.":
-                    print(f"⏭️ 스킵: 번역 정보 부족 ({vid_id})")
-                    continue
+        # 5) Notion 업로드
+        props = {
+            "VideoID":     {"title":[{"text":{"content":vid_id}}]},
+            "URL":         {"url":f"https://youtu.be/{vid_id}"},
+            "Title":       {"rich_text":[{"text":{"content":title}}]},
+            "Ingredients": {"rich_text":[{"text":{"content":ingredients}}]},
+            "Instructions":{"rich_text":[{"text":{"content":instructions_kr}}]},
+        }
+        notion.pages.create(parent={"database_id": NOTION_DATABASE_ID}, properties=props)
 
-                seo_instructions = optimize_for_seo(full_text_kr)
-                if seo_instructions == "정보가 없습니다.":
-                    print(f"⏭️ 스킵: 조리법 정보 부족 ({vid_id})")
-                    continue
-
-                hashtags = generate_hashtags(full_text_kr)
-                if hashtags == "#정보없음":
-                    print(f"⏭️ 스킵: 해시태그 정보 부족 ({vid_id})")
-                    continue
-
-                category    = classify_category(full_text_kr)
-                ingredients = extract_ingredients(full_text_kr)
-                if ingredients == "정보가 없습니다.":
-                    print(f"⏭️ 스킵: 재료 정보 부족 ({vid_id})")
-                    continue
-
-                props = {
-                    "VideoID":     {"title":[{"text":{"content":vid_id}}]},
-                    "URL":         {"url":f"https://youtu.be/{vid_id}"},
-                    "Title":       {"rich_text":[{"text":{"content":translate_to_korean(snip['title'])}}]},
-                    "Channel":     {"rich_text":[{"text":{"content":channel}}]},
-                    "Category":    {"select":{"name":category}},
-                    "Ingredients": {"rich_text":[{"text":{"content":ingredients}}]},
-                    "Instructions":{"rich_text":[{"text":{"content":seo_instructions}}]},
-                    "Hashtags":    {"rich_text":[{"text":{"content":hashtags}}]},
-                    "Views":       {"number":views},
-                }
-                notion.pages.create(parent={"database_id":NOTION_DB_ID}, properties=props)
-                uploaded += 1
-                existing_ids.add(vid_id)
-
-                print(f"✅ 업로드 완료 ({uploaded}/{MAX_PER_DAY}), 카테고리: {category}")
-                time.sleep(1)
-
-            if not page_token:
-                break
+        uploaded += 1
+        existing_ids.add(vid_id)
+        print(f"✅ 업로드 완료 ({uploaded}/{MAX_UPLOADS})")
+        time.sleep(1)  # API Rate-limit 방지
 
     print(f"총 {uploaded}개 업로드 완료")
 
