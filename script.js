@@ -3,68 +3,76 @@ const SUPABASE_URL = "https://qhlhxcedibkxotaeuygd.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFobGh4Y2VkaWJreG90YWV1eWdkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Mzc5MDY4NiwiZXhwIjoyMDc5MzY2Njg2fQ.Gourmb3YQwQod6W8Li2DfwpjRwEjIrQAj2dWHE5NkqE"; 
 
 // Supabase 클라이언트 초기화
-// window.supabase를 사용하여 전역으로 불러온 라이브러리 객체를 사용합니다.
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); 
 
 // 레시피 목록을 화면에 렌더링하는 함수
 function displayRecipes(recipes) {
     const listContainer = document.getElementById('recipe-list');
-    listContainer.innerHTML = ''; // '로딩 중...' 메시지 삭제
+    listContainer.innerHTML = ''; 
 
     if (recipes.length === 0) {
-        listContainer.innerHTML = '<p>아직 등록된 레시피가 없습니다.</p>';
+        listContainer.innerHTML = '<div class="col-12"><p class="text-center text-muted">아직 등록된 레시피가 없습니다. 크롤러를 실행해 주세요.</p></div>';
         return;
     }
 
     recipes.forEach(recipe => {
-        // 재료 목록을 HTML로 변환 (쿠팡 링크 포함)
-        let ingredientsHtml = '<p><strong>필요 재료:</strong></p><ul>';
-        // ingredients_json이 유효한 배열인지 확인
+        // 재료 목록 HTML 생성 (수익화 링크 포함)
+        let ingredientsHtml = '<ul class="list-unstyled small mt-2">';
         if (Array.isArray(recipe.ingredients_json)) {
-            recipe.ingredients_json.forEach(item => {
-                // ⭐ 핵심 수익화 로직: 재료 이름과 쿠팡 링크를 함께 표시
-                const purchaseLink = item.purchase_link || '#'; // 링크가 없으면 #으로 대체
+            recipe.ingredients_json.slice(0, 3).forEach(item => { // 상위 3개 재료만 표시
+                const purchaseLink = item.purchase_link || '#';
                 ingredientsHtml += `
                     <li>
-                        ${item.name} (${item.amount || '적당량'}) 
-                        <a href="${purchaseLink}" target="_blank" style="color: #ff6600; font-weight: bold;">[재료 구매 🛒]</a>
+                        ${item.name} 
+                        <a href="${purchaseLink}" target="_blank" class="text-warning text-decoration-none">[구매 🛒]</a>
                     </li>
                 `;
             });
         }
         ingredientsHtml += '</ul>';
 
-        // 레시피 카드 생성
+        const col = document.createElement('div');
+        col.className = 'col';
+
         const recipeCard = document.createElement('div');
-        recipeCard.className = 'recipe-card';
+        recipeCard.className = 'card h-100 shadow-sm border-0'; // 부트스트랩 카드 디자인
+
+        // 썸네일 이미지 표시 로직 추가: thumbnail_url이 없으면 대체 이미지 사용
+        // DB에 저장된 1x1 투명 이미지가 로드될 것입니다.
+        const imageUrl = recipe.thumbnail_url || 'https://via.placeholder.com/600x400?text=SnapFood'; 
+        
         recipeCard.innerHTML = `
-            <h3>${recipe.title || '제목 없음'}</h3>
-            <p>${recipe.summary || '요약 없음'}</p>
-            ${ingredientsHtml}
-            <p><strong>조리 순서:</strong> ${recipe.method_text ? recipe.method_text.substring(0, 100) + '...' : '순서 없음'}</p>
-            <p style="color: green; font-style: italic;">⭐ 팁: ${recipe.tips || '별도 팁 없음'}</p>
-            <a href="${recipe.video_url || '#'}" target="_blank">원본 유튜브 영상 보기 ▶️</a>
+            <img src="${imageUrl}" class="card-img-top recipe-image" alt="${recipe.title || '레시피 이미지'}">
+            <div class="card-body">
+                <span class="badge bg-danger mb-2">${recipe.tags ? recipe.tags[0] : '미분류'}</span>
+                <h5 class="card-title text-primary">${recipe.title || '제목 없음'}</h5>
+                <p class="card-text small text-muted">${recipe.summary || '요약 없음'}</p>
+                
+                ${ingredientsHtml}
+            </div>
+            <div class="card-footer bg-white border-top-0">
+                <a href="${recipe.video_url || '#'}" target="_blank" class="btn btn-outline-dark btn-sm w-100">원본 영상 보기 ▶️</a>
+                
+                <p class="mt-2 small text-muted">🎨 AI Prompt: ${recipe.image_prompt ? recipe.image_prompt.substring(0, 50) + '...' : '프롬프트 없음'}</p>
+            </div>
         `;
-        listContainer.appendChild(recipeCard);
+        
+        col.appendChild(recipeCard);
+        listContainer.appendChild(col);
     });
 }
 
 async function fetchAndDisplayRecipes() {
-    console.log("레시피 목록을 불러오는 중...");
-    
-    // Supabase DB에서 레시피 데이터 가져오기
     const { data, error } = await supabaseClient
         .from('recipes')
         .select('*')
-        .limit(20); // 20개로 늘려서 표시
+        .limit(20); 
 
     if (error) {
-        console.error("데이터 로딩 실패 (RLS 또는 DB 접근 오류):", error);
-        document.getElementById('recipe-list').innerHTML = '<p style="color: red;">데이터 로딩 실패. Supabase RLS 설정 또는 API 키를 확인해주세요.</p>';
+        document.getElementById('recipe-list').innerHTML = '<div class="col-12"><p style="color: red;" class="text-center">데이터 로딩 실패. RLS/API 키를 확인해주세요.</p></div>';
     } else {
-        console.log(`로딩된 레시피 수: ${data.length}`);
-        displayRecipes(data); // 데이터가 성공하면 화면에 표시
+        displayRecipes(data); 
     }
 }
 
-fetchAndDisplayRecipes(); // 함수 실행
+fetchAndDisplayRecipes();
