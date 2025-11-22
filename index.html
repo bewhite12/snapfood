@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snap Food - 최고의 레시피 사이트</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; }
+        header { background-color: #ff6600; color: white; padding: 10px 20px; border-radius: 5px; }
+        h1 { margin-top: 0; }
+        #recipe-list { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 20px; }
+        .recipe-card { 
+            background: white; 
+            padding: 15px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+            width: 300px; 
+        }
+        .recipe-card h3 { color: #333; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Snap Food에 오신 것을 환영합니다!</h1>
+        <p>단기간 수익 극대화를 위한 레시피 콘텐츠 자동 생성 시스템.</p>
+    </header>
+    
+    <h2>오늘의 추천 레시피</h2>
+    
+    <div id="recipe-list">
+        <p>로딩 중... 레시피 데이터를 가져오는 중입니다.</p>
+    </div>
+    
+    <footer>
+        <p>&copy; 2024 Snap Food. All rights reserved.</p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <script src="script.js"></script>
+</body>
+</html>
